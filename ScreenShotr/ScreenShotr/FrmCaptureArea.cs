@@ -40,6 +40,10 @@ namespace ScreenShotr
 
         // The positions that were recorded in their respective states.
         private int startX, startY, endX, endY = 0;
+
+        // This stores the initial location of the form so we can revert to this
+        // after resizing the form to match the capture area.
+        private Point initalLocation;
         
         #region Configuration
 
@@ -78,8 +82,10 @@ namespace ScreenShotr
         /// </summary>
         private void FrmCaptureArea_Load(object sender, EventArgs e)
         {
+            this.initalLocation = this.Location;
             EnableHook();
             this.state = CaptureState.CapturingStart;
+
         }
 
         /// <summary>
@@ -95,6 +101,8 @@ namespace ScreenShotr
                 case WM_LBUTTONDOWN:
                     
                     this.state = CaptureState.CapturingEnd;
+                    this.Opacity = 0;
+                    lblInfo.Text = "This box shows the area that will be captured.";
 
                     // Intercept, because this should not move focus to another program.
                     return 1;
@@ -191,13 +199,22 @@ namespace ScreenShotr
 
             // Re-show the form.
             this.Opacity = 100;
+            this.Location = initalLocation;
+            lblInfo.Text = "Uploading...";
+            this.ClientSize = new Size(266, 74);
+            this.Refresh();
 
             this.Upload(bmp);
             bmp.Dispose();
         }
 
+        /// <summary>
+        /// Uploads the captured image to the location specified in confugiration settings.
+        /// </summary>
+        /// <param name="bmp">The captured image.</param>
         private void Upload(Bitmap bmp)
         {
+
             // Get the user settings.
             var url = ConfigurationManager.AppSettings[keyUploadUrl];
             if (string.IsNullOrWhiteSpace(url))
