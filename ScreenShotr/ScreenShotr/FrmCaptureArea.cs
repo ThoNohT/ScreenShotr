@@ -23,6 +23,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Net;
+using System.Net.Security;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -39,10 +40,7 @@ namespace ScreenShotr
 
         // The positions that were recorded in their respective states.
         private int startX, startY, endX, endY = 0;
-
-        // A string containing a null character in order to be able to separate the password from the actual image.
-        private string nullStr = Convert.ToChar(0x0).ToString();
-
+        
         #region Configuration
 
         // The key in the configuration file that contains the url to post the upload request to.
@@ -50,6 +48,12 @@ namespace ScreenShotr
 
         // The key in the configuration file that contains the password to use when uploading.
         private const string keyUploadPassword = "uploadPassword";
+
+        // The key in the configuration file that contains the http user to use when authorizing.
+        private const string keyHttpUser = "httpUser";
+
+        // The key int he configuration file that contains the http passwrod to use when authorizing.
+        private const string keyHttpPassword = "httpPassword";
 
         #endregion Configuration
 
@@ -157,6 +161,9 @@ namespace ScreenShotr
             }
         }
         
+        /// <summary>
+        /// Creates a screenshot and then calls the uploading function.
+        /// </summary>
         private void CreateScreenshot()
         {
             // Allow the form to hide itself.
@@ -191,55 +198,44 @@ namespace ScreenShotr
 
         private void Upload(Bitmap bmp)
         {
-            var stream = new MemoryStream();
-            bmp.Save(stream, ImageFormat.Png);
-
             // Get the user settings.
-            var pass = ConfigurationManager.AppSettings[keyUploadPassword];
-            if (pass == null)
-            {
-                MessageBox.Show("No password defined, please check your settings.");
-                this.Close();
-            }
             var url = ConfigurationManager.AppSettings[keyUploadUrl];
-            if (url == null)
+            if (string.IsNullOrWhiteSpace(url))
             {
                 MessageBox.Show("No url defined, please check your settings.");
                 this.Close();
             }
+            var httpUser = ConfigurationManager.AppSettings[keyHttpUser];
+            var httpPassword = ConfigurationManager.AppSettings[keyHttpPassword];
+            var httpLogin = !(string.IsNullOrWhiteSpace(httpUser) || string.IsNullOrWhiteSpace(httpPassword));
+            
+            // Get the binary data.
+            var stream = new MemoryStream();
+            bmp.Save(stream, ImageFormat.Png);
+            var dataArray = stream.ToArray();
+            
+            // Create a web request.           
+            ServicePointManager.ServerCertificateValidationCallback = new RemoteCertificateValidationCallback((a, b, c, d) => true);
 
-            // Create a web request.
-            var passArray = Encoding.ASCII.GetBytes(pass + nullStr);
-            var array = stream.ToArray();
-            var request = WebRequest.Create(url);
-            request.Method = "POST";
-            request.ContentLength = array.Length + passArray.Length;
-            request.ContentType = "application/x-httpd-php";
-
-            // Fill the data of the request.
-            var dataStream = request.GetRequestStream();
-            dataStream.Write(passArray, 0, passArray.Length);
-            dataStream.Write(array, 0, array.Length);
-            dataStream.Close();
-
-            // Get the response.
-            var response = request.GetResponse();
-            var status = ((HttpWebResponse)response).StatusDescription;
-
-            if (status == "OK")
+            using (var client = new WebClient())
             {
-                dataStream = response.GetResponseStream();
-                var reader = new StreamReader(dataStream);
-                string responseString = reader.ReadToEnd().Trim();
+                if (httpLogin) client.Credentials = new NetworkCredential(httpUser, httpPassword);
+                else client.UseDefaultCredentials = true;
+                client.Headers[HttpRequestHeader.ContentType] = "application/x-httpd-php";
 
-                if (!responseString.StartsWith("http"))
-                    MessageBox.Show(string.Format("Upload failed ({0}), please check your settings.", responseString));
+                try
+                {
+                    var response = Encoding.UTF8.GetString(client.UploadData(url, dataArray));
 
-                Clipboard.SetText(responseString.Trim());
-            }
-            else
-            {
-                MessageBox.Show("Upload failed, please check your settings.");
+                    if (!response.StartsWith("http"))
+                        MessageBox.Show(string.Format("Upload failed ({0}), please check your settings.", response));
+
+                    Clipboard.SetText(response.Trim());
+                }
+                catch (WebException ex)
+                {
+                    MessageBox.Show(string.Format("Upload failed ({0}), please check your settings.", ex.Message));
+                }
             }
         }
 
