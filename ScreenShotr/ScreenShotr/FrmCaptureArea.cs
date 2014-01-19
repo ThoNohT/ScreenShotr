@@ -221,7 +221,6 @@ namespace ScreenShotr
             {
                 if (httpLogin) client.Credentials = new NetworkCredential(httpUser, httpPassword);
                 else client.UseDefaultCredentials = true;
-                client.Headers[HttpRequestHeader.ContentType] = "application/x-httpd-php";
 
                 try
                 {
