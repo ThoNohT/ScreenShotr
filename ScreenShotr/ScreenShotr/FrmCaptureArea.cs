@@ -44,6 +44,9 @@ namespace ScreenShotr
         // This stores the initial location of the form so we can revert to this
         // after resizing the form to match the capture area.
         private Point initalLocation;
+
+        // A constant that indicates true in the settings file.
+        private const string TRUE = "1";
         
         #region Configuration
 
@@ -56,8 +59,12 @@ namespace ScreenShotr
         // The key in the configuration file that contains the http user to use when authorizing.
         private const string keyHttpUser = "httpUser";
 
-        // The key int he configuration file that contains the http passwrod to use when authorizing.
+        // The key in the configuration file that contains the http passwrod to use when authorizing.
         private const string keyHttpPassword = "httpPassword";
+
+        // The key in the configuration file that is set to TRUE (see the field) if a proxy is to be used.
+        // Note that the default windows credentials will be used for the proxy.
+        private const string keyUseProxy = "useProxy";
 
         #endregion Configuration
 
@@ -238,6 +245,9 @@ namespace ScreenShotr
             {
                 if (httpLogin) client.Credentials = new NetworkCredential(httpUser, httpPassword);
                 else client.UseDefaultCredentials = true;
+
+                if (ConfigurationManager.AppSettings[keyUseProxy] == TRUE)
+                    client.Proxy.Credentials = System.Net.CredentialCache.DefaultCredentials;
 
                 try
                 {
