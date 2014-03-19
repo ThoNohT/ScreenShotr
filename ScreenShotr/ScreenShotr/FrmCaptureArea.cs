@@ -156,7 +156,7 @@ namespace ScreenShotr
         /// </summary>
         private void HandleUploading()
         {
-            var result = MessageBox.Show("Upload this area? (cancel retries)", "Upload", MessageBoxButtons.YesNoCancel);
+            var result = MessageBox.Show("Upload this area? (press no to retry, cancel to quit)", "Upload", MessageBoxButtons.YesNoCancel);
 
             if (result == DialogResult.Yes)
             {
@@ -164,12 +164,12 @@ namespace ScreenShotr
                 CreateScreenshot();
                 this.Close();
             }
-            if (result == DialogResult.No || result == DialogResult.None)
+            if (result == DialogResult.Cancel || result == DialogResult.None)
             {
                 // End.
                 this.Close();
             }
-            if (result == DialogResult.Cancel)
+            if (result == DialogResult.No)
             {
                 // Reinitialize.
                 this.FrmCaptureArea_Load(null, null);
