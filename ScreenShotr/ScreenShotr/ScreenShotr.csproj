@@ -46,6 +46,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="CaptureState.cs" />
+    <Compile Include="ClipboardImageData.cs" />
     <Compile Include="FrmCaptureArea.cs">
       <SubType>Form</SubType>
     </Compile>

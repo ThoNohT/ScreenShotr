@@ -23,7 +23,6 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Net;
-using System.Net.Security;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -31,6 +30,9 @@ using System.Windows.Forms;
 
 namespace ScreenShotr
 {
+    using System.Collections.Generic;
+    using System.Linq;
+
     public partial class FrmCaptureArea : Form
     {
         #region Fields
@@ -52,10 +54,7 @@ namespace ScreenShotr
 
         // The key in the configuration file that contains the url to post the upload request to.
         private const string keyUploadUrl = "uploadUrl";
-
-        // The key in the configuration file that contains the password to use when uploading.
-        private const string keyUploadPassword = "uploadPassword";
-
+        
         // The key in the configuration file that contains the http user to use when authorizing.
         private const string keyHttpUser = "httpUser";
 
@@ -77,7 +76,7 @@ namespace ScreenShotr
         /// </summary>
         public FrmCaptureArea()
         {
-            InitializeComponent();
+            this.InitializeComponent();
         }
 
         #endregion Constructors
@@ -89,10 +88,89 @@ namespace ScreenShotr
         /// </summary>
         private void FrmCaptureArea_Load(object sender, EventArgs e)
         {
-            this.initalLocation = this.Location;
-            EnableHook();
-            this.state = CaptureState.CapturingStart;
+            var inClipboard = GetClipboardImages();
 
+            foreach (var clipImg in inClipboard)
+            {
+                switch (clipImg.Type)
+                {
+                    case ClipboardImageData.ImageType.Raw:
+                        var rawResult = MessageBox.Show(
+                            "There is an image in the clipboard, do you want to upload this?\nPress Ok to upload, Cancel to ignore",
+                            "Upload from Clipboard",
+                            MessageBoxButtons.OKCancel);
+
+                        if (rawResult == DialogResult.OK) this.Upload(clipImg.ImageData);
+                        break;
+
+                    case ClipboardImageData.ImageType.FileDrop:
+                        var fileResult = MessageBox.Show(
+                            $"Image file {clipImg.FileName} is in the clipboard, do you want to upload this?\n" +
+                                "Press OK to upload, Cancel to ignore",
+                            "Upload file from Clipboard",
+                            MessageBoxButtons.OKCancel);
+
+                        if (fileResult == DialogResult.OK) this.Upload(clipImg.ImageData);
+                        break;
+                }
+            }
+
+            if (inClipboard.Any())
+            {
+                var clearResult = MessageBox.Show(
+                    "Do you want to clear the clipboard?",
+                    "Clear Clipboard",
+                    MessageBoxButtons.OKCancel);
+
+                if (clearResult == DialogResult.OK) Clipboard.Clear();
+            }
+
+            this.StartCapturing();
+        }
+
+        /// <summary>
+        /// Starts the capturing process.
+        /// </summary>
+        private void StartCapturing()
+        {
+            this.initalLocation = this.Location;
+            this.EnableHook();
+            this.state = CaptureState.CapturingStart;
+        }
+
+        /// <summary>
+        /// Attempts to get a picture from the clipboard. Either from raw image data, or from a
+        /// file copied in explorer that contains an image.
+        /// </summary>
+        /// <returns>The bitmap retrieved from the clipboard, or null if there is no image in
+        /// clipboard.</returns>
+        private static IEnumerable<ClipboardImageData> GetClipboardImages()
+        {
+            // Try to get an image directly from the clipboard.
+            var img = Clipboard.GetImage();
+            if (img != null) yield return ClipboardImageData.Raw(img);
+
+            // Check for image files.
+            var dataObject = Clipboard.GetDataObject();
+            if (!dataObject.GetDataPresent(DataFormats.FileDrop)) yield break;
+
+            var files = (string[])dataObject.GetData(DataFormats.FileDrop);
+            foreach (var file in files)
+            {
+                Image fileImg;
+
+                try
+                {
+                    fileImg = Image.FromFile(file);
+                }
+                catch
+                {
+                    // Skip.
+                    continue;
+                }
+
+                yield return ClipboardImageData.FromFile(file, fileImg);
+            }
         }
 
         /// <summary>
@@ -106,19 +184,19 @@ namespace ScreenShotr
             switch (wParam.ToInt32())
             {
                 case WM_LBUTTONDOWN:
-                    
+
                     this.state = CaptureState.CapturingEnd;
                     this.Opacity = 0;
-                    lblInfo.Text = "This box shows the area that will be captured.";
+                    this.lblInfo.Text = "This box shows the area that will be captured.";
 
                     // Intercept, because this should not move focus to another program.
                     return 1;
 
                 case WM_LBUTTONUP:
-                    DisableHook();
+                    this.DisableHook();
                     this.state = CaptureState.Finished;
 
-                    HandleUploading();
+                    this.HandleUploading();
                     break;
 
                 case WM_MOUSEMOVE:
@@ -143,7 +221,7 @@ namespace ScreenShotr
 
                 default:
                     // If the user does anything else, just quit.
-                    DisableHook();
+                    this.DisableHook();
                     this.Close();
                     break;
             }
@@ -161,7 +239,7 @@ namespace ScreenShotr
             if (result == DialogResult.Yes)
             {
                 // Do the uploading.
-                CreateScreenshot();
+                this.CreateScreenshot();
                 this.Close();
             }
             if (result == DialogResult.Cancel || result == DialogResult.None)
@@ -172,10 +250,10 @@ namespace ScreenShotr
             if (result == DialogResult.No)
             {
                 // Reinitialize.
-                this.FrmCaptureArea_Load(null, null);
+                this.StartCapturing();
             }
         }
-        
+
         /// <summary>
         /// Creates a screenshot and then calls the uploading function.
         /// </summary>
@@ -196,8 +274,8 @@ namespace ScreenShotr
 
             // Try to copy the screen region
             BitBlt(hDest, 0, 0, this.Size.Width, this.Size.Height, hSrce, this.Location.X, this.Location.Y, CopyPixelOperation.SourceCopy | CopyPixelOperation.CaptureBlt);
-            var bmp = Bitmap.FromHbitmap(hBmp);
-            
+            var bmp = Image.FromHbitmap(hBmp);
+
             // Delete the window handle.
             SelectObject(hDest, hOldBmp);
             DeleteObject(hBmp);
@@ -206,8 +284,8 @@ namespace ScreenShotr
 
             // Re-show the form.
             this.Opacity = 100;
-            this.Location = initalLocation;
-            lblInfo.Text = "Uploading...";
+            this.Location = this.initalLocation;
+            this.lblInfo.Text = "Uploading...";
             this.ClientSize = new Size(266, 74);
             this.Refresh();
 
@@ -218,28 +296,29 @@ namespace ScreenShotr
         /// <summary>
         /// Uploads the captured image to the location specified in confugiration settings.
         /// </summary>
-        /// <param name="bmp">The captured image.</param>
-        private void Upload(Bitmap bmp)
+        /// <param name="img">The captured image.</param>
+        private void Upload(Image img)
         {
-
             // Get the user settings.
             var url = ConfigurationManager.AppSettings[keyUploadUrl];
             if (string.IsNullOrWhiteSpace(url))
             {
                 MessageBox.Show("No url defined, please check your settings.");
                 this.Close();
+                return;
             }
+
             var httpUser = ConfigurationManager.AppSettings[keyHttpUser];
             var httpPassword = ConfigurationManager.AppSettings[keyHttpPassword];
             var httpLogin = !(string.IsNullOrWhiteSpace(httpUser) || string.IsNullOrWhiteSpace(httpPassword));
-            
+
             // Get the binary data.
             var stream = new MemoryStream();
-            bmp.Save(stream, ImageFormat.Png);
+            img.Save(stream, ImageFormat.Png);
             var dataArray = stream.ToArray();
-            
+
             // Create a web request.           
-            ServicePointManager.ServerCertificateValidationCallback = new RemoteCertificateValidationCallback((a, b, c, d) => true);
+            ServicePointManager.ServerCertificateValidationCallback = (a, b, c, d) => true;
 
             using (var client = new WebClient())
             {
@@ -247,20 +326,20 @@ namespace ScreenShotr
                 else client.UseDefaultCredentials = true;
 
                 if (ConfigurationManager.AppSettings[keyUseProxy] == TRUE)
-                    client.Proxy.Credentials = System.Net.CredentialCache.DefaultCredentials;
+                    client.Proxy.Credentials = CredentialCache.DefaultCredentials;
 
                 try
                 {
                     var response = Encoding.UTF8.GetString(client.UploadData(url, dataArray));
 
                     if (!response.StartsWith("http"))
-                        MessageBox.Show(string.Format("Upload failed ({0}), please check your settings.", response));
+                        MessageBox.Show($"Upload failed ({response}), please check your settings.");
 
                     Clipboard.SetText(response.Trim());
                 }
                 catch (WebException ex)
                 {
-                    MessageBox.Show(string.Format("Upload failed ({0}), please check your settings.", ex.Message));
+                    MessageBox.Show($"Upload failed ({ex.Message}), please check your settings.");
                 }
             }
         }
@@ -271,9 +350,9 @@ namespace ScreenShotr
         private void EnableHook()
         {
             // Create an instance of HookProc.
-            MouseHookProcedure = new HookProc(MouseHookProc);
+            this.MouseHookProcedure = new HookProc(this.MouseHookProc);
 
-            hHook = SetWindowsHookEx(WH_MOUSE_LL, MouseHookProcedure, (IntPtr)0, 0);
+            hHook = SetWindowsHookEx(WH_MOUSE_LL, this.MouseHookProcedure, (IntPtr)0, 0);
             //If the SetWindowsHookEx function fails.
             if (hHook == 0)
             {
